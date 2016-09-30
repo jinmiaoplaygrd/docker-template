@@ -2,10 +2,10 @@
   "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "newStorageAccountName": {
+    "resourcePrefix": {
       "type": "string",
       "metadata": {
-        "description": "Unique DNS Name for the Storage Account where the Virtual Machine's disks will be placed."
+        "description": "Prefix string for all resources. This would become part of the fully qualified domain name for each VM in the cluster, thus it should be globally unique."
       }
     },
     "adminUsername": {
@@ -20,68 +20,79 @@
         "description": "Password for the Virtual Machine."
       }
     },
-    "dnsNameForPublicIP": {
+    "CentOSOSVersion": {
       "type": "string",
+      "defaultValue": "7.2",
       "metadata": {
-        "description": "Unique DNS Name for the Public IP used to access the Virtual Machine."
-      }
-    },
-    "ubuntuOSVersion": {
-      "type": "string",
-      "defaultValue": "14.04.4-LTS",
-      "metadata": {
-        "description": "The Ubuntu version for deploying the Docker containers. This will pick a fully patched image of this given Ubuntu version. Allowed values: 14.04.4-LTS, 15.10, 16.04.0-LTS"
+        "description": "The CentOS version for deploying the Docker containers. This will pick a fully patched image of this given Ubuntu version. Allowed values: 14.04.4-LTS, 15.10, 16.04.0-LTS"
       },
       "allowedValues": [
-        "14.04.4-LTS",
-        "15.10",
-        "16.04.0-LTS"
+        "6.5",
+        "7.2"
       ]
+    },
+    "vmCount": {
+      "type": "int",
+      "metadata": {
+        "description": "VM instance count in the cluster."
+      },
+      "defaultValue": 1,
+      "maxValue": 4
     }
   },
   "variables": {
-    "imagePublisher": "Canonical",
-    "imageOffer": "UbuntuServer",
-    "OSDiskName": "osdiskfordockersimple",
+    "imagePublisher": "OpenLogic",
+    "imageOffer": "CentOS",
+    "OSDiskName": "osdiskfordockertest",
     "nicName": "myVMNicD",
-    "extensionName": "DockerExtension",
+    "extensionName": "CustomScriptForLinux",
     "addressPrefix": "10.0.0.0/16",
     "subnetName": "Subnet",
     "subnetPrefix": "10.0.0.0/24",
     "storageAccountType": "Standard_LRS",
+    "storageAccountName": "[concat(parameters('resourcePrefix'),'sto')]",
     "publicIPAddressName": "myPublicIPD",
     "publicIPAddressType": "Dynamic",
     "vmStorageAccountContainerName": "vhds",
-    "vmName": "MyDockerVM",
-    "vmSize": "Standard_F1",
-    "virtualNetworkName": "MyVNETD",
+    "vmName": "[concat(parameters('resourcePrefix'),'DockerVM')]",
+    "vmSize": "Standard_A1",
+    "virtualNetworkName": "[concat(parameters('resourcePrefix'),'DockerVnet')]",
     "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('virtualNetworkName'))]",
-    "subnetRef": "[concat(variables('vnetID'),'/subnets/',variables('subnetName'))]"
+    "subnetRef": "[concat(variables('vnetID'),'/subnets/',variables('subnetName'))]",
+    "VMCount": "[parameters('vmCount')]",
+    "VMStart": 1
   },
   "resources": [
     {
       "type": "Microsoft.Storage/storageAccounts",
-      "name": "[parameters('newStorageAccountName')]",
-      "apiVersion": "2015-05-01-preview",
+      "name": "[variables('storageAccountName')]",
+      "apiVersion": "2016-01-01",
+      "sku": {
+                "name": "[variables('storageAccountType')]",
+                "tier": "Standard"
+            },
+      "kind": "Storage",
       "location": "[resourceGroup().location]",
-      "properties": {
-        "accountType": "[variables('storageAccountType')]"
-      }
+      "properties": {}
     },
     {
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2016-03-30",
       "type": "Microsoft.Network/publicIPAddresses",
-      "name": "[variables('publicIPAddressName')]",
+      "copy": {
+        "name": "vmCountCopy",
+        "count": "[variables('VMCount')]"
+      },
+      "name": "[concat(variables('publicIPAddressName'),copyIndex(variables('VMStart')))]",
       "location": "[resourceGroup().location]",
       "properties": {
         "publicIPAllocationMethod": "[variables('publicIPAddressType')]",
         "dnsSettings": {
-          "domainNameLabel": "[parameters('dnsNameForPublicIP')]"
+          "domainNameLabel": "[concat(parameters('resourcePrefix'),'vm',copyIndex(variables('VMStart')))]"
         }
       }
     },
     {
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2016-03-30",
       "type": "Microsoft.Network/virtualNetworks",
       "name": "[variables('virtualNetworkName')]",
       "location": "[resourceGroup().location]",
@@ -102,12 +113,16 @@
       }
     },
     {
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2016-03-30",
       "type": "Microsoft.Network/networkInterfaces",
-      "name": "[variables('nicName')]",
+      "copy": {
+        "name": "vmCountCopy",
+        "count": "[variables('VMCount')]"
+      },
+      "name": "[concat(variables('nicName'),copyIndex(variables('VMStart')))]",
       "location": "[resourceGroup().location]",
       "dependsOn": [
-        "[concat('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
+        "[concat('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'),copyIndex(variables('VMStart')))]",
         "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
       ],
       "properties": {
@@ -117,7 +132,7 @@
             "properties": {
               "privateIPAllocationMethod": "Dynamic",
               "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('publicIPAddressName'))]"
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',concat(variables('publicIPAddressName'),copyIndex(variables('VMStart'))))]"
               },
               "subnet": {
                 "id": "[variables('subnetRef')]"
@@ -128,20 +143,24 @@
       }
     },
     {
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "type": "Microsoft.Compute/virtualMachines",
-      "name": "[variables('vmName')]",
+      "copy": {
+        "name": "vmCountCopy",
+        "count": "[variables('VMCount')]"
+      },
+      "name": "[concat(variables('vmName'),copyIndex(variables('VMStart')))]",
       "location": "[resourceGroup().location]",
       "dependsOn": [
-        "[concat('Microsoft.Storage/storageAccounts/', parameters('newStorageAccountName'))]",
-        "[concat('Microsoft.Network/networkInterfaces/', variables('nicName'))]"
+        "[concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', variables('nicName'), copyIndex(variables('VMStart')))]"
       ],
       "properties": {
         "hardwareProfile": {
           "vmSize": "[variables('vmSize')]"
         },
         "osProfile": {
-          "computerName": "[variables('vmName')]",
+          "computerName": "[concat(variables('vmName'),copyIndex(variables('VMStart')))]",
           "adminUsername": "[parameters('adminUsername')]",
           "adminPassword": "[parameters('adminPassword')]"
         },
@@ -149,13 +168,13 @@
           "imageReference": {
             "publisher": "[variables('imagePublisher')]",
             "offer": "[variables('imageOffer')]",
-            "sku": "[parameters('ubuntuOSVersion')]",
+            "sku": "[parameters('CentOSOSVersion')]",
             "version": "latest"
           },
           "osDisk": {
             "name": "osdisk1",
             "vhd": {
-              "uri": "[concat('http://',parameters('newStorageAccountName'),'.blob.core.windows.net/',variables('vmStorageAccountContainerName'),'/',variables('OSDiskName'),'.vhd')]"
+              "uri": "[concat(reference(concat('Microsoft.Storage/storageAccounts/',variables('storageAccountName')), '2016-01-01').primaryEndpoints.blob,variables('vmStorageAccountContainerName'),'/',variables('OSDiskName'),copyIndex(variables('VMStart')),'.vhd')]"
             },
             "caching": "ReadWrite",
             "createOption": "FromImage"
@@ -164,27 +183,39 @@
         "networkProfile": {
           "networkInterfaces": [
             {
-              "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('nicName'),copyIndex(variables('VMStart'))))]"
             }
           ]
         }
       }
     },
     {
+      "name": "[concat(variables('vmName'),copyIndex(variables('VMStart')),'/installdocker')]",
       "type": "Microsoft.Compute/virtualMachines/extensions",
-      "name": "[concat(variables('vmName'),'/', variables('extensionName'))]",
-      "apiVersion": "2015-05-01-preview",
+      "copy": {
+        "name": "vmCopy",
+        "count": "[variables('VMCount')]"
+      },
+      "apiVersion": "2015-06-15",
       "location": "[resourceGroup().location]",
       "dependsOn": [
-        "[concat('Microsoft.Compute/virtualMachines/', variables('vmName'))]"
+        "[concat('Microsoft.Compute/virtualMachines/', variables('vmName'), copyIndex(variables('VMStart')))]"
       ],
       "properties": {
-        "publisher": "Microsoft.Azure.Extensions",
-        "type": "DockerExtension",
-        "typeHandlerVersion": "1.0",
+        "publisher": "Microsoft.OSTCExtensions",
+        "type": "CustomScriptForLinux",
+        "typeHandlerVersion": "1.4",
         "autoUpgradeMinorVersion": true,
-        "settings": { }
-      }
+        "settings": {
+          "fileUris": [
+       /*     "[concat(parameters('_artifactsLocation'), '/scripts/installDocker.sh')]" */
+              "https://raw.githubusercontent.com/jinmiaoms/docker-template/master/"
+          ] 
+        },
+        "protectedSettings": {
+          "commandToExecute": "bash scripts/installDocker.sh"
+        }
+       }
     }
   ]
 }

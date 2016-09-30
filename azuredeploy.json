@@ -209,11 +209,11 @@
         "settings": {
           "fileUris": [
        /*     "[concat(parameters('_artifactsLocation'), '/scripts/installDocker.sh')]" */
-              "https://raw.githubusercontent.com/jinmiaoms/docker-template/master/"
+              "https://raw.githubusercontent.com/jinmiaoms/docker-template/master/scripts/"
           ] 
         },
         "protectedSettings": {
-          "commandToExecute": "bash scripts/installDocker.sh"
+          "commandToExecute": "bash installDocker.sh"
         }
        }
     }

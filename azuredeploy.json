@@ -207,14 +207,14 @@
         "typeHandlerVersion": "1.4",
         "autoUpgradeMinorVersion": true,
         "settings": {
-          "fileUris": [
+          "fileUris": 
        /*     "[concat(parameters('_artifactsLocation'), '/scripts/installDocker.sh')]" */
-              "https://raw.githubusercontent.com/jinmiaoms/docker-template/master/scripts/"
-          ] 
+              "https://raw.githubusercontent.com/jinmiaoms/docker-template/master/scripts/installDocker.sh"
+          
         },
-        "protectedSettings": {
+
           "commandToExecute": "bash installDocker.sh"
-        }
+        
        }
     }
   ]
